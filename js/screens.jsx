@@ -97,7 +97,8 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
           });
 
           const appOwnerId = (a.apps || []).map(app => D.appOwners?.[app]).find(Boolean);
-          if (appOwnerId && humanMap[appOwnerId]) {
+          const shouldShowAppDependency = (selAgent === a.id) || (selHuman === ownerId) || (a.approval || '').toLowerCase().includes('missing') || (a.approval || '').toLowerCase().includes('pending');
+          if (shouldShowAppDependency && appOwnerId && humanMap[appOwnerId]) {
             edges.push({
               id: `app-${a.id}-${appOwnerId}`,
               source: a.id,
@@ -112,6 +113,21 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
 
       const maxY = Math.max(...nodes.map(n => n.position.y), 0);
       const minX = Math.min(...nodes.map(n => n.position.x), 0);
+      const orphanStartY = maxY + 190;
+      const orphanCols = 4;
+      const orphanRows = Math.max(1, Math.ceil(orphans.length / orphanCols));
+      if (orphans.length) {
+        nodes.push({
+          id: 'orphan-lane',
+          type: 'orphanLane',
+          data: { count: orphans.length },
+          position: { x: minX - 24, y: orphanStartY - 54 },
+          width: (orphanCols * AGENT_W) + ((orphanCols - 1) * 16) + 48,
+          height: (orphanRows * AGENT_H) + ((orphanRows - 1) * 16) + 86,
+          draggable: false,
+          selectable: false
+        });
+      }
       orphans.forEach((a, i) => {
         const row = Math.floor(i / 4);
         const col = i % 4;
@@ -119,11 +135,18 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
           id: a.id,
           type: 'orphanAgent',
           data: { ...a, orphan: true, selected: selAgent === a.id },
-          position: { x: minX + col * (AGENT_W + 16), y: maxY + 190 + row * (AGENT_H + 16) },
+          position: { x: minX + col * (AGENT_W + 16), y: orphanStartY + row * (AGENT_H + 16) },
           width: AGENT_W,
           height: AGENT_H,
           sourcePosition: RF.Position.Bottom,
           targetPosition: RF.Position.Top
+        });
+        edges.push({
+          id: `orphan-lane-${a.id}`,
+          source: 'orphan-lane',
+          target: a.id,
+          type: 'smoothstep',
+          style: { stroke: '#DC2626', strokeDasharray: '4 4', strokeWidth: 1.5 }
         });
       });
     }
@@ -135,6 +158,7 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
     appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
     agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
     orphanAgent: ({ data }) => <div className={`rf-node orphan risk-${data.risk} ${data.selected ? 'selected' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'Unknown system'}</div><div className="rf-meta"><span>No sponsor</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
+    orphanLane: ({ data }) => <div className="orphan-lane-node"><div className="lane-title">Orphaned Agent Lane</div><div className="lane-sub">{data.count} agents with no sponsor</div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
   }), [onSelectHuman, onSelectAgent, selHuman, selAgent, suspendedAgents, dataVersion]);
 
   if (!RF) return <div className="page"><div className="card" style={{padding:20}}>React Flow failed to load.</div></div>;
