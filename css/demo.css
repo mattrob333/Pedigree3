@@ -817,6 +817,60 @@ body { background: var(--off-white); overflow: hidden; }
   color: #b91c1c;
 }
 
+.chart-legend {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  color: #334155;
+  min-width: 180px;
+}
+.chart-legend .legend-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.chart-legend .legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.chart-legend .legend-row em {
+  color: #94a3b8;
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 4px;
+}
+.chart-legend .legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.chart-legend .legend-line.dashed {
+  height: 2px;
+  background-image: linear-gradient(to right, currentColor 60%, transparent 0%);
+  background-size: 6px 2px;
+  background-repeat: repeat-x;
+  background-color: transparent !important;
+}
+.chart-legend .legend-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 14px;
+  border: 2px dashed;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 .modal-backdrop { position: fixed; inset: 0; background: rgba(2,6,23,.58); z-index: 90; display: grid; place-items: center; }
 .modal-card { width: 640px; background: white; border-radius: 14px; border: 1px solid var(--border); padding: 24px; box-shadow: var(--shadow-lg); }
 .modal-card h3 { margin: 0 0 8px; font-family: var(--font-serif); font-size: 34px; font-weight: 400; }

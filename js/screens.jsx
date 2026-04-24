@@ -12,16 +12,47 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
 
   const buildGraph = React.useMemo(() => {
     if (!RF || !dagre) return { nodes: [], edges: [] };
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100, marginx: 40, marginy: 30 });
-    g.setDefaultEdgeLabel(() => ({}));
 
-    const nodes = [];
-    const edges = [];
     const HUMAN_W = 250;
     const HUMAN_H = 88;
     const AGENT_W = 245;
     const AGENT_H = 72;
+    const GAP_X = 40;       // horizontal gap between human and its agent column
+    const GAP_Y = 14;       // vertical gap between stacked agents
+    const OFFSET_DOWN = 24; // how far below the human's top-edge the first agent starts
+
+    // Pre-bucket agents so we can widen dagre slots for humans that own agents
+    const ownedAgentsByHuman = {};
+    const orphans = [];
+    if (revealed) {
+      agents.forEach((a) => {
+        if (!a.parent || !humanMap[a.parent]) orphans.push(a);
+        else {
+          if (!ownedAgentsByHuman[a.parent]) ownedAgentsByHuman[a.parent] = [];
+          ownedAgentsByHuman[a.parent].push(a);
+        }
+      });
+    }
+
+    // Compute the slot (layout) dimensions each human should occupy in dagre.
+    // Humans with agents reserve space for an agent column to the right,
+    // and enough height for the full column so the next rank doesn't collide.
+    const slotSizeFor = (h) => {
+      const agentCount = (ownedAgentsByHuman[h.id] || []).length;
+      if (!agentCount) return { width: HUMAN_W, height: HUMAN_H };
+      const columnHeight = OFFSET_DOWN + agentCount * AGENT_H + (agentCount - 1) * GAP_Y;
+      const slotHeight = Math.max(HUMAN_H, HUMAN_H / 2 + columnHeight) + 20; // +20 breathing room
+      const slotWidth = HUMAN_W + GAP_X + AGENT_W;
+      return { width: slotWidth, height: slotHeight };
+    };
+
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60, marginx: 40, marginy: 30 });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    const nodes = [];
+    const edges = [];
+    const slotByHuman = {};
 
     humans.forEach((h) => {
       const type = appOwnerIds.has(h.id) ? 'appOwner' : 'human';
@@ -36,7 +67,9 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
         targetPosition: RF.Position.Top
       };
       nodes.push(n);
-      g.setNode(n.id, { width: HUMAN_W, height: HUMAN_H });
+      const slot = slotSizeFor(h);
+      slotByHuman[h.id] = slot;
+      g.setNode(n.id, { width: slot.width, height: slot.height });
       if (h.manager && humanMap[h.manager]) {
         g.setEdge(h.manager, h.id);
         edges.push({
@@ -50,54 +83,53 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
     });
 
     dagre.layout(g);
+    const humanNodes = {};
     nodes.forEach((n) => {
       const p = g.node(n.id);
-      if (p) n.position = { x: p.x - HUMAN_W / 2, y: p.y - HUMAN_H / 2 };
+      const slot = slotByHuman[n.id] || { width: HUMAN_W, height: HUMAN_H };
+      if (p) {
+        // Anchor the human at the TOP-LEFT of its (possibly extra-wide) slot.
+        // This leaves the right side of the slot free for the agent column.
+        const slotLeft = p.x - slot.width / 2;
+        const slotTop = p.y - slot.height / 2;
+        n.position = { x: slotLeft, y: slotTop };
+      }
+      humanNodes[n.id] = n;
     });
 
     if (revealed) {
-      const humanNodes = Object.fromEntries(nodes.filter(n => n.type !== 'agent' && n.type !== 'orphanAgent').map(n => [n.id, n]));
-      const ownedAgentsByHuman = {};
-      const orphans = [];
-
-      agents.forEach((a) => {
-        if (!a.parent || !humanMap[a.parent] || !humanNodes[a.parent]) orphans.push(a);
-        else {
-          if (!ownedAgentsByHuman[a.parent]) ownedAgentsByHuman[a.parent] = [];
-          ownedAgentsByHuman[a.parent].push(a);
-        }
-      });
-
+      // Place each human's agents in a vertical column to the RIGHT of the human,
+      // starting slightly below the human's top edge.
       Object.entries(ownedAgentsByHuman).forEach(([ownerId, ownerAgents]) => {
         const ownerNode = humanNodes[ownerId];
-        const perRow = Math.min(3, ownerAgents.length);
+        if (!ownerNode) return;
+        const columnX = ownerNode.position.x + HUMAN_W + GAP_X;
+        const columnStartY = ownerNode.position.y + OFFSET_DOWN;
         ownerAgents.forEach((a, i) => {
-          const row = Math.floor(i / perRow);
-          const col = i % perRow;
-          const rowCount = Math.min(perRow, ownerAgents.length - row * perRow);
-          const startX = ownerNode.position.x + (HUMAN_W / 2) - ((rowCount * AGENT_W + (rowCount - 1) * 16) / 2);
-          const ax = startX + col * (AGENT_W + 16);
-          const ay = ownerNode.position.y + HUMAN_H + 44 + row * (AGENT_H + 14);
+          const ay = columnStartY + i * (AGENT_H + GAP_Y);
           nodes.push({
             id: a.id,
             type: 'agent',
             data: { ...a, selected: selAgent === a.id, suspended: suspendedAgents.includes(a.id) },
-            position: { x: ax, y: ay },
+            position: { x: columnX, y: ay },
             width: AGENT_W,
             height: AGENT_H,
-            sourcePosition: RF.Position.Bottom,
-            targetPosition: RF.Position.Top
+            sourcePosition: RF.Position.Right,
+            targetPosition: RF.Position.Left
           });
           edges.push({
             id: `own-${ownerId}-${a.id}`,
             source: ownerId,
+            sourceHandle: 'r',
             target: a.id,
+            targetHandle: 'l',
             type: 'smoothstep',
             style: { stroke: '#7C3AED', strokeDasharray: '6 4', strokeWidth: 2 }
           });
 
+          // App-dependency edges only when a node is selected (keeps default view clean)
           const appOwnerId = (a.apps || []).map(app => D.appOwners?.[app]).find(Boolean);
-          const shouldShowAppDependency = (selAgent === a.id) || (selHuman === ownerId) || (a.approval || '').toLowerCase().includes('missing') || (a.approval || '').toLowerCase().includes('pending');
+          const shouldShowAppDependency = (selAgent === a.id) || (selHuman === ownerId) || (selHuman === appOwnerId);
           if (shouldShowAppDependency && appOwnerId && humanMap[appOwnerId]) {
             edges.push({
               id: `app-${a.id}-${appOwnerId}`,
@@ -111,9 +143,10 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
         });
       });
 
-      const maxY = Math.max(...nodes.map(n => n.position.y), 0);
+      // Orphan lane: a labeled container, no fanout edges (those created the red crisscross)
+      const maxY = Math.max(...nodes.map(n => n.position.y + (n.height || 0)), 0);
       const minX = Math.min(...nodes.map(n => n.position.x), 0);
-      const orphanStartY = maxY + 190;
+      const orphanStartY = maxY + 80;
       const orphanCols = 4;
       const orphanRows = Math.max(1, Math.ceil(orphans.length / orphanCols));
       if (orphans.length) {
@@ -125,12 +158,13 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
           width: (orphanCols * AGENT_W) + ((orphanCols - 1) * 16) + 48,
           height: (orphanRows * AGENT_H) + ((orphanRows - 1) * 16) + 86,
           draggable: false,
-          selectable: false
+          selectable: false,
+          zIndex: -1
         });
       }
       orphans.forEach((a, i) => {
-        const row = Math.floor(i / 4);
-        const col = i % 4;
+        const row = Math.floor(i / orphanCols);
+        const col = i % orphanCols;
         nodes.push({
           id: a.id,
           type: 'orphanAgent',
@@ -141,22 +175,23 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
           sourcePosition: RF.Position.Bottom,
           targetPosition: RF.Position.Top
         });
-        edges.push({
-          id: `orphan-lane-${a.id}`,
-          source: 'orphan-lane',
-          target: a.id,
-          type: 'smoothstep',
-          style: { stroke: '#DC2626', strokeDasharray: '4 4', strokeWidth: 1.5 }
-        });
       });
     }
     return { nodes, edges };
   }, [revealed, selHuman, selAgent, suspendedAgents, dataVersion]);
 
+  // Stateful nodes/edges so users can drag nodes and have them stay put
+  const [rfNodes, setRfNodes, onNodesChange] = RF.useNodesState([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = RF.useEdgesState([]);
+  React.useEffect(() => {
+    setRfNodes(buildGraph.nodes);
+    setRfEdges(buildGraph.edges);
+  }, [buildGraph, setRfNodes, setRfEdges]);
+
   const nodeTypes = React.useMemo(() => ({
-    human: ({ data }) => <div className={`rf-node human ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>{data.dept}</span><span>{agents.filter(a => a.parent === data.id).length} agents</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
-    appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
-    agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
+    human: ({ data }) => <div className={`rf-node human ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><RF.Handle type="target" id="l" position={RF.Position.Left} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>{data.dept}</span><span>{agents.filter(a => a.parent === data.id).length} agents</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /><RF.Handle type="source" id="r" position={RF.Position.Right} className="rf-handle" /></div>,
+    appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><RF.Handle type="target" id="l" position={RF.Position.Left} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /><RF.Handle type="source" id="r" position={RF.Position.Right} className="rf-handle" /></div>,
+    agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><RF.Handle type="target" id="l" position={RF.Position.Left} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /><RF.Handle type="source" id="r" position={RF.Position.Right} className="rf-handle" /></div>,
     orphanAgent: ({ data }) => <div className={`rf-node orphan risk-${data.risk} ${data.selected ? 'selected' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'Unknown system'}</div><div className="rf-meta"><span>No sponsor</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
     orphanLane: ({ data }) => <div className="orphan-lane-node"><div className="lane-title">Orphaned Agent Lane</div><div className="lane-sub">{data.count} agents with no sponsor</div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
   }), [onSelectHuman, onSelectAgent, selHuman, selAgent, suspendedAgents, dataVersion]);
@@ -173,10 +208,30 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
       </div>
       <div className="orgchart rf-wrapper">
         <div className="org-title">Tiered lineage map · humans, agents, app approvals, orphan lane</div>
-        <RF.ReactFlow nodes={buildGraph.nodes} edges={buildGraph.edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }} proOptions={{ hideAttribution: true }}>
+        <RF.ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.15 }}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={true}
+          nodesConnectable={false}
+          minZoom={0.2}
+          maxZoom={2}
+        >
           <RF.Background gap={24} size={1} color="#e2e8f0" />
-          <RF.Controls position="bottom-left" />
-          <RF.MiniMap pannable zoomable nodeColor={(n) => n.type === 'orphanAgent' ? '#dc2626' : n.type === 'agent' ? '#7c3aed' : '#334155'} />
+          <RF.Controls position="bottom-left" showInteractive={false} />
+          <RF.MiniMap pannable zoomable nodeColor={(n) => n.type === 'orphanAgent' ? '#dc2626' : n.type === 'agent' ? '#7c3aed' : n.type === 'orphanLane' ? 'transparent' : '#334155'} />
+          <RF.Panel position="top-right" className="chart-legend">
+            <div className="legend-title">Legend</div>
+            <div className="legend-row"><span className="legend-line" style={{ background: '#64748B' }} />Reports to (manager)</div>
+            <div className="legend-row"><span className="legend-line dashed" style={{ color: '#7C3AED' }} />Owns agent</div>
+            <div className="legend-row"><span className="legend-line dashed" style={{ color: '#EA580C' }} />App dependency <em>(click a node)</em></div>
+            <div className="legend-row"><span className="legend-swatch" style={{ background: 'rgba(254,242,242,0.55)', borderColor: 'rgba(220,38,38,.45)' }} />Orphan lane</div>
+          </RF.Panel>
         </RF.ReactFlow>
       </div>
     </div>
