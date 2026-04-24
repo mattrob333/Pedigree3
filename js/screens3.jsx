@@ -15,8 +15,8 @@ const DashboardScreen = ({ goScreen }) => {
       <div className="page-head">
         <div>
           <div className="page-kicker">Executive view · Apex Industrial Group</div>
-          <h1>Risk Dashboard</h1>
-          <div className="page-sub">A snapshot of the agent workforce. Discovery, accountability, lifecycle, and audit readiness — in one view.</div>
+          <h1>42 agents discovered. 11 have no human sponsor.</h1>
+          <div className="page-sub">Pedigree found hidden agent risk across 8 platforms before the audit team asked who owns them.</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost" onClick={() => goScreen('audit')}>Open Audit Packet</button>
@@ -42,7 +42,7 @@ const DashboardScreen = ({ goScreen }) => {
         <div style={{flex: 1}}>
           <div style={{fontFamily: 'var(--font-mono)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#FCA5A5', marginBottom: 6}}>Sales conversation starter</div>
           <div style={{fontFamily: 'var(--font-serif)', fontSize: 26, fontWeight: 400, letterSpacing: '-0.015em', lineHeight: 1.15}}>
-            Would you walk into an audit with <span style={{color: '#FCA5A5'}}>{s.orphaned} orphaned agents</span> still in production?
+            Pedigree is the accountability layer for enterprise AI agents.
           </div>
         </div>
         <button className="btn btn-white" onClick={() => goScreen('risk')}>Show me the risks →</button>
@@ -164,7 +164,7 @@ const IntegrationsScreen = () => {
 const Walkthrough = ({ step, setStep, onClose, goScreen, setRevealed, selectAgent }) => {
   const steps = [
     { title: 'Discovery', screen: 'dashboard', body: <>Pedigree found <strong>42 agents</strong> across Copilot Studio, LangGraph, Zapier, GitHub Actions, and 4 other platforms. Most enterprises have no central register.</>, cta: 'See lineage map' },
-    { title: 'Lineage Mapping', screen: 'org', after: () => setRevealed(true), body: <><strong>31 agents</strong> are mapped to a human sponsor. <strong>11 are orphaned</strong> with no owner of record.</>, cta: 'Show me the orphans' },
+    { title: 'Lineage Mapping', screen: 'org', after: () => { setRevealed(true); setTimeout(() => selectAgent('a2'), 300); }, body: <><strong>31 agents</strong> are mapped to a human sponsor. <strong>11 are orphaned</strong> with no owner of record.</>, cta: 'Show me the orphans' },
     { title: 'Risk Finding', screen: 'risk', body: <>One agent has <strong>Snowflake write access and no sponsor</strong>. Another exports Salesforce data without app-owner approval. Six findings need review now.</>, cta: 'Simulate a termination' },
     { title: 'HR Event Simulation', screen: 'hr', body: <><strong>Jane Smith</strong> is leaving. Three of her agents would remain active unless reviewed. Pedigree cascades the lifecycle automatically.</>, cta: 'Generate evidence' },
     { title: 'Audit Packet', screen: 'audit', body: <>Export evidence for security, IAM, and external audit. Inventory, lineage, permissions, approvals, and remediation — one PDF.</>, cta: 'Finish walkthrough' },

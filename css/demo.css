@@ -772,3 +772,30 @@ body { background: var(--off-white); overflow: hidden; }
 .dropdown-menu .dd-item.active { background: var(--navy-950); color: white; }
 .dropdown-menu .dd-item .dd-sub { font-size: 11.5px; color: var(--text-muted); }
 .dropdown-menu .dd-item.active .dd-sub { color: rgba(255,255,255,0.6); }
+
+.tb-import, .tb-reset {
+  padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.06);
+}
+.tb-import:hover, .tb-reset:hover { background: rgba(255,255,255,0.12); }
+
+.rf-wrapper { height: calc(100vh - 250px); }
+.rf-wrapper .react-flow__renderer { border-radius: 10px; }
+.rf-node { width: 100%; background: #fff; border: 1px solid #dbe5f0; border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow-sm); cursor: pointer; }
+.rf-node.selected { box-shadow: 0 0 0 3px rgba(59,130,246,.16), var(--shadow-sm); border-color: #3b82f6; }
+.rf-node .rf-title { font-weight: 600; font-size: 13px; line-height: 1.2; color: #0f172a; }
+.rf-node .rf-sub { font-size: 11px; color: #475569; margin-top: 4px; }
+.rf-node .rf-meta { display: flex; justify-content: space-between; align-items: center; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin-top: 8px; }
+.rf-node.agent { border-left: 4px solid #f59e0b; }
+.rf-node.agent.risk-high { border-left-color: #f97316; background: #fff7ed; }
+.rf-node.agent.risk-critical { border-left-color: #ef4444; background: #fef2f2; }
+.rf-node.agent.risk-low { border-left-color: #22c55e; background: #f0fdf4; }
+.rf-node.appowner { background: #eef2ff; border-color: #c7d2fe; }
+.rf-node.orphan { border: 1px dashed #dc2626; border-left: 4px solid #dc2626; background: #fef2f2; }
+
+.modal-backdrop { position: fixed; inset: 0; background: rgba(2,6,23,.58); z-index: 90; display: grid; place-items: center; }
+.modal-card { width: 640px; background: white; border-radius: 14px; border: 1px solid var(--border); padding: 24px; box-shadow: var(--shadow-lg); }
+.modal-card h3 { margin: 0 0 8px; font-family: var(--font-serif); font-size: 34px; font-weight: 400; }
+.modal-card p { margin: 0 0 16px; color: var(--text-muted); }
+.modal-actions { display: flex; gap: 8px; align-items: center; }
+.modal-error { margin-top: 12px; color: #b91c1c; font-size: 13px; }
