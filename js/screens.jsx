@@ -13,53 +13,128 @@ const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, s
   const buildGraph = React.useMemo(() => {
     if (!RF || !dagre) return { nodes: [], edges: [] };
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 90, marginx: 30, marginy: 30 });
+    g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100, marginx: 40, marginy: 30 });
     g.setDefaultEdgeLabel(() => ({}));
 
     const nodes = [];
     const edges = [];
+    const HUMAN_W = 250;
+    const HUMAN_H = 88;
+    const AGENT_W = 245;
+    const AGENT_H = 72;
+
     humans.forEach((h) => {
       const type = appOwnerIds.has(h.id) ? 'appOwner' : 'human';
-      const n = { id: h.id, type, data: { ...h, kind: type, selected: selHuman === h.id }, position: { x: 0, y: 0 }, width: type === 'human' ? 250 : 220, height: 88 };
-      nodes.push(n); g.setNode(n.id, { width: n.width, height: n.height });
-      if (h.manager && humanMap[h.manager]) edges.push({ id: `mgr-${h.manager}-${h.id}`, source: h.manager, target: h.id, type: 'smoothstep', style: { stroke: '#64748B', strokeWidth: 1.5 } });
+      const n = {
+        id: h.id,
+        type,
+        data: { ...h, kind: type, selected: selHuman === h.id },
+        position: { x: 0, y: 0 },
+        width: HUMAN_W,
+        height: HUMAN_H,
+        sourcePosition: RF.Position.Bottom,
+        targetPosition: RF.Position.Top
+      };
+      nodes.push(n);
+      g.setNode(n.id, { width: HUMAN_W, height: HUMAN_H });
+      if (h.manager && humanMap[h.manager]) {
+        g.setEdge(h.manager, h.id);
+        edges.push({
+          id: `mgr-${h.manager}-${h.id}`,
+          source: h.manager,
+          target: h.id,
+          type: 'smoothstep',
+          style: { stroke: '#64748B', strokeWidth: 2 }
+        });
+      }
+    });
+
+    dagre.layout(g);
+    nodes.forEach((n) => {
+      const p = g.node(n.id);
+      if (p) n.position = { x: p.x - HUMAN_W / 2, y: p.y - HUMAN_H / 2 };
     });
 
     if (revealed) {
+      const humanNodes = Object.fromEntries(nodes.filter(n => n.type !== 'agent' && n.type !== 'orphanAgent').map(n => [n.id, n]));
+      const ownedAgentsByHuman = {};
+      const orphans = [];
+
       agents.forEach((a) => {
-        const orphan = !a.parent || !humanMap[a.parent];
-        const nodeId = a.id;
-        const n = { id: nodeId, type: orphan ? 'orphanAgent' : 'agent', data: { ...a, orphan, selected: selAgent === a.id, suspended: suspendedAgents.includes(a.id) }, position: { x: 0, y: 0 }, width: 245, height: 72 };
-        nodes.push(n); g.setNode(n.id, { width: 245, height: 72 });
-        if (orphan) {
-          edges.push({ id: `orphan-${a.id}`, source: humans[0]?.id || 'h1', target: a.id, type: 'smoothstep', style: { stroke: '#DC2626', strokeDasharray: '4 4', strokeWidth: 1.3 } });
-        } else {
-          edges.push({ id: `own-${a.parent}-${a.id}`, source: a.parent, target: a.id, type: 'smoothstep', style: { stroke: '#7C3AED', strokeDasharray: '6 4', strokeWidth: 1.5 } });
-        }
-        const appOwnerId = (a.apps || []).map(app => D.appOwners?.[app]).find(Boolean);
-        if (appOwnerId && humanMap[appOwnerId]) {
-          edges.push({ id: `app-${a.id}-${appOwnerId}`, source: a.id, target: appOwnerId, type: 'straight', animated: a.risk === 'critical' || a.risk === 'high', style: { stroke: '#EA580C', strokeDasharray: '3 5', strokeWidth: 1.3 } });
+        if (!a.parent || !humanMap[a.parent] || !humanNodes[a.parent]) orphans.push(a);
+        else {
+          if (!ownedAgentsByHuman[a.parent]) ownedAgentsByHuman[a.parent] = [];
+          ownedAgentsByHuman[a.parent].push(a);
         }
       });
-    }
 
-    edges.forEach((e) => g.setEdge(e.source, e.target));
-    dagre.layout(g);
-    nodes.forEach((n) => { const p = g.node(n.id); if (p) n.position = { x: p.x - (n.width || 0)/2, y: p.y - (n.height || 0)/2 }; });
+      Object.entries(ownedAgentsByHuman).forEach(([ownerId, ownerAgents]) => {
+        const ownerNode = humanNodes[ownerId];
+        const perRow = Math.min(3, ownerAgents.length);
+        ownerAgents.forEach((a, i) => {
+          const row = Math.floor(i / perRow);
+          const col = i % perRow;
+          const rowCount = Math.min(perRow, ownerAgents.length - row * perRow);
+          const startX = ownerNode.position.x + (HUMAN_W / 2) - ((rowCount * AGENT_W + (rowCount - 1) * 16) / 2);
+          const ax = startX + col * (AGENT_W + 16);
+          const ay = ownerNode.position.y + HUMAN_H + 44 + row * (AGENT_H + 14);
+          nodes.push({
+            id: a.id,
+            type: 'agent',
+            data: { ...a, selected: selAgent === a.id, suspended: suspendedAgents.includes(a.id) },
+            position: { x: ax, y: ay },
+            width: AGENT_W,
+            height: AGENT_H,
+            sourcePosition: RF.Position.Bottom,
+            targetPosition: RF.Position.Top
+          });
+          edges.push({
+            id: `own-${ownerId}-${a.id}`,
+            source: ownerId,
+            target: a.id,
+            type: 'smoothstep',
+            style: { stroke: '#7C3AED', strokeDasharray: '6 4', strokeWidth: 2 }
+          });
 
-    const orphanNodes = nodes.filter(n => n.type === 'orphanAgent');
-    if (orphanNodes.length) {
-      const maxY = Math.max(...nodes.filter(n => n.type !== 'orphanAgent').map(n => n.position.y), 0);
-      orphanNodes.forEach((n, i) => { n.position = { x: 80 + (i % 4) * 280, y: maxY + 240 + Math.floor(i / 4) * 90 }; });
+          const appOwnerId = (a.apps || []).map(app => D.appOwners?.[app]).find(Boolean);
+          if (appOwnerId && humanMap[appOwnerId]) {
+            edges.push({
+              id: `app-${a.id}-${appOwnerId}`,
+              source: a.id,
+              target: appOwnerId,
+              type: 'bezier',
+              animated: a.risk === 'critical' || a.risk === 'high',
+              style: { stroke: '#EA580C', strokeDasharray: '3 5', strokeWidth: 1.5 }
+            });
+          }
+        });
+      });
+
+      const maxY = Math.max(...nodes.map(n => n.position.y), 0);
+      const minX = Math.min(...nodes.map(n => n.position.x), 0);
+      orphans.forEach((a, i) => {
+        const row = Math.floor(i / 4);
+        const col = i % 4;
+        nodes.push({
+          id: a.id,
+          type: 'orphanAgent',
+          data: { ...a, orphan: true, selected: selAgent === a.id },
+          position: { x: minX + col * (AGENT_W + 16), y: maxY + 190 + row * (AGENT_H + 16) },
+          width: AGENT_W,
+          height: AGENT_H,
+          sourcePosition: RF.Position.Bottom,
+          targetPosition: RF.Position.Top
+        });
+      });
     }
     return { nodes, edges };
   }, [revealed, selHuman, selAgent, suspendedAgents, dataVersion]);
 
   const nodeTypes = React.useMemo(() => ({
-    human: ({ data }) => <div className={`rf-node human ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>{data.dept}</span><span>{agents.filter(a => a.parent === data.id).length} agents</span></div></div>,
-    appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div></div>,
-    agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div></div>,
-    orphanAgent: ({ data }) => <div className={`rf-node orphan risk-${data.risk} ${data.selected ? 'selected' : ''}`} onClick={() => onSelectAgent(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'Unknown system'}</div><div className="rf-meta"><span>No sponsor</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div></div>,
+    human: ({ data }) => <div className={`rf-node human ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>{data.dept}</span><span>{agents.filter(a => a.parent === data.id).length} agents</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
+    appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
+    agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
+    orphanAgent: ({ data }) => <div className={`rf-node orphan risk-${data.risk} ${data.selected ? 'selected' : ''}`} onClick={() => onSelectAgent(data.id)}><RF.Handle type="target" position={RF.Position.Top} className="rf-handle" /><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'Unknown system'}</div><div className="rf-meta"><span>No sponsor</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div><RF.Handle type="source" position={RF.Position.Bottom} className="rf-handle" /></div>,
   }), [onSelectHuman, onSelectAgent, selHuman, selAgent, suspendedAgents, dataVersion]);
 
   if (!RF) return <div className="page"><div className="card" style={{padding:20}}>React Flow failed to load.</div></div>;
