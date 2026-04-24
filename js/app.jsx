@@ -9,6 +9,8 @@ const App = () => {
   const [riskFilter, setRiskFilter] = React.useState('all');
   const [suspended, setSuspended] = React.useState([]);
   const [walkStep, setWalkStep] = React.useState(null);
+  const [dataVersion, setDataVersion] = React.useState(0);
+  const [importOpen, setImportOpen] = React.useState(false);
 
   const selectHuman = (id) => { setSelAgent(null); setSelHuman(id); };
   const selectAgent = (id) => { setSelHuman(null); setSelAgent(id); };
@@ -27,25 +29,26 @@ const App = () => {
   }, [scenario]);
 
   const startWalkthrough = () => { setWalkStep(0); setEntryOpen(false); };
+  const refreshData = () => setDataVersion(v => v + 1);
   const drawerOpen = !!(selHuman || selAgent);
 
   return (
     <ToastProvider>
       <div className="shell">
-        <TopBar scenario={scenario} setScenario={setScenario} goScreen={goScreen} />
-        <Sidebar screen={screen} setScreen={goScreen} startWalkthrough={startWalkthrough} />
+        <TopBar scenario={scenario} setScenario={setScenario} goScreen={goScreen} onImport={() => setImportOpen(true)} onReset={() => { window.resetToDemoData(); refreshData(); }} />
+        <Sidebar screen={screen} setScreen={goScreen} startWalkthrough={startWalkthrough} dataVersion={dataVersion} />
         <div className={`main ${drawerOpen ? 'with-drawer' : ''}`}>
-          {screen === 'dashboard' && <DashboardScreen goScreen={goScreen}/>}
+          {screen === 'dashboard' && <DashboardScreen goScreen={goScreen} dataVersion={dataVersion}/>}
           {screen === 'org' && (
-            <OrgChartScreen revealed={revealed} setRevealed={setRevealed} onSelectHuman={selectHuman} onSelectAgent={selectAgent} selHuman={selHuman} selAgent={selAgent} goScreen={goScreen} suspendedAgents={suspended}/>
+            <OrgChartScreen revealed={revealed} setRevealed={setRevealed} onSelectHuman={selectHuman} onSelectAgent={selectAgent} selHuman={selHuman} selAgent={selAgent} goScreen={goScreen} suspendedAgents={suspended} dataVersion={dataVersion}/>
           )}
           {screen === 'risk' && (
-            <RiskFindingsScreen goScreen={goScreen} onSelectAgent={(id) => { goScreen('org'); setRevealed(true); selectAgent(id); }} filter={riskFilter} setFilter={setRiskFilter}/>
+            <RiskFindingsScreen goScreen={goScreen} onSelectAgent={(id) => { goScreen('org'); setRevealed(true); selectAgent(id); }} filter={riskFilter} setFilter={setRiskFilter} dataVersion={dataVersion}/>
           )}
-          {screen === 'hr' && <HRSimScreen goScreen={goScreen} onSuspend={toggleSuspend} />}
-          {screen === 'approvals' && <ApprovalsScreen />}
-          {screen === 'audit' && <AuditPacketScreen />}
-          {screen === 'integrations' && <IntegrationsScreen />}
+          {screen === 'hr' && <HRSimScreen goScreen={goScreen} onSuspend={toggleSuspend} dataVersion={dataVersion} />}
+          {screen === 'approvals' && <ApprovalsScreen dataVersion={dataVersion} />}
+          {screen === 'audit' && <AuditPacketScreen dataVersion={dataVersion} />}
+          {screen === 'integrations' && <IntegrationsScreen dataVersion={dataVersion} />}
           {screen === 'settings' && <SettingsScreen />}
 
           {selHuman && <HumanDrawer human={getHuman(selHuman)} onClose={closeDrawer} goScreen={goScreen}/>}
@@ -54,6 +57,7 @@ const App = () => {
 
         {entryOpen && <EntryScreen scenario={scenario} setScenario={setScenario} onStart={() => { setEntryOpen(false); }} onWalkthrough={startWalkthrough} />}
         {walkStep !== null && <Walkthrough step={walkStep} setStep={setWalkStep} onClose={() => setWalkStep(null)} goScreen={goScreen} setRevealed={setRevealed} selectAgent={selectAgent}/>}
+        {importOpen && <CsvImportModal onClose={() => setImportOpen(false)} onImported={() => { refreshData(); setImportOpen(false); setScreen('org'); setRevealed(true); }} />}
       </div>
     </ToastProvider>
   );

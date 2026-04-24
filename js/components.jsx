@@ -88,7 +88,7 @@ const AgentNode = ({ agent, selected, onSelect, suspended }) => (
 );
 
 // ============ TOPBAR ============
-const TopBar = ({ scenario, setScenario, goScreen }) => {
+const TopBar = ({ scenario, setScenario, goScreen, onImport, onReset }) => {
   const [scenOpen, setScenOpen] = useState(false);
   const toast = useToast();
   const scenarios = [
@@ -135,7 +135,70 @@ const TopBar = ({ scenario, setScenario, goScreen }) => {
         <button className="tb-export" onClick={() => { toast.add('Evidence packet generated.'); goScreen('audit'); }}>
           Export Packet
         </button>
+        <button className="tb-import" onClick={onImport}>Upload CSV</button>
+        <button className="tb-reset" onClick={() => { onReset(); toast.add('Reset to demo dataset.'); }}>Reset Demo</button>
         <div className="tb-avatar">MS</div>
+      </div>
+    </div>
+  );
+};
+
+
+
+const CsvImportModal = ({ onClose, onImported }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    setError('');
+    setTimeout(() => {
+      window.Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: ({ data }) => {
+          try {
+            window.importCsvRows(data);
+            onImported();
+          } catch (err) {
+            setError(err.message || 'Could not parse CSV.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        error: (err) => {
+          setError(err.message || 'Could not parse CSV.');
+          setLoading(false);
+        }
+      });
+    }, 500);
+  };
+
+  const downloadSample = () => {
+    const blob = new Blob([window.PEDIGREE_SAMPLE_CSV], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'pedigree-sample.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card">
+        <h3>Import Org + Agent Data</h3>
+        <p>Upload a combined CSV file and Pedigree will rebuild hierarchy, findings, and org graph.</p>
+        <div className="modal-actions">
+          <label className="btn btn-accent">
+            {loading ? 'Parsing CSV…' : 'Choose CSV'}
+            <input type="file" accept=".csv" style={{display:'none'}} onChange={onFile} disabled={loading} />
+          </label>
+          <button className="btn btn-ghost" onClick={downloadSample}>Download Sample CSV</button>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="modal-error">{error}</div>}
       </div>
     </div>
   );
@@ -148,7 +211,7 @@ const Sidebar = ({ screen, setScreen, startWalkthrough }) => {
     { id: 'org', label: 'Agent Org Chart', icon: 'org' },
     { id: 'risk', label: 'Risk Findings', icon: 'risk', badge: D.findings.length },
     { id: 'hr', label: 'HR Simulation', icon: 'hr' },
-    { id: 'approvals', label: 'Approvals', icon: 'approval', badge: 3 },
+    { id: 'approvals', label: 'Approvals', icon: 'approval', badge: D.findings.filter(f => (f.type || '').toLowerCase().includes('approval')).length },
     { id: 'audit', label: 'Audit Packet', icon: 'audit' },
     { id: 'integrations', label: 'Integrations', icon: 'integrations' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -189,6 +252,6 @@ const Sidebar = ({ screen, setScreen, startWalkthrough }) => {
 // Export to window for cross-file scope
 Object.assign(window, {
   Icon, ToastProvider, useToast, RiskChip, PlatformChip,
-  HumanNode, AgentNode, TopBar, Sidebar, D,
+  HumanNode, AgentNode, TopBar, Sidebar, CsvImportModal, D,
   getHuman: window.getHuman, getAgent: window.getAgent
 });
