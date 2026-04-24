@@ -114,3 +114,109 @@ window.PEDIGREE_DATA = (() => {
 
 window.getHuman = (id) => window.PEDIGREE_DATA.humans.find(h => h.id === id);
 window.getAgent = (id) => window.PEDIGREE_DATA.agents.find(a => a.id === id);
+
+window.PEDIGREE_SAMPLE_CSV = `type,id,name,role,department,managerId,ownerId,platform,systemAccessed,riskLevel,approvalStatus,status
+human,h_001,Evelyn Carter,CIO,Technology,,,,,,active
+human,h_002,Marcus Reed,VP Revenue Operations,Revenue,h_001,,,,,active
+human,h_003,Jane Smith,Sales Operations Manager,Revenue,h_002,,,,,terminating
+agent,a_001,Forecast Cleanup Agent,,Revenue,,h_003,LangGraph,Salesforce,high,pending,active
+agent,a_002,Renewal Email Agent,,Revenue,,h_003,Copilot Studio,Salesforce,medium,approved,active
+agent,a_003,Legacy Data Cleanup,,Data,,,Internal Builder,Snowflake,critical,missing,active`;
+
+window.__PEDIGREE_BASELINE__ = JSON.parse(JSON.stringify(window.PEDIGREE_DATA));
+
+window.computePedigreeFindings = function computePedigreeFindings(data) {
+  const findings = [];
+  const now = new Date('2026-04-24T00:00:00Z');
+  const humanMap = Object.fromEntries(data.humans.map(h => [h.id, h]));
+  data.agents.forEach((a) => {
+    const owner = a.parent ? humanMap[a.parent] : null;
+    const approval = (a.approval || '').toLowerCase();
+    if (!a.parent) findings.push({ id: `derived-${a.id}-orphan`, agentId: a.id, parentId: null, type: 'No human sponsor', severity: 'critical', evidence: 'Agent has no owner in the org hierarchy.', action: 'Assign sponsor or suspend immediately.', status: 'Open' });
+    if ((a.risk === 'high' || a.risk === 'critical') && (approval.includes('missing') || approval.includes('pending'))) findings.push({ id: `derived-${a.id}-overperm`, agentId: a.id, parentId: a.parent || null, type: 'Agent exceeds approved access', severity: 'high', evidence: 'High-risk agent lacks complete app-owner approval.', action: 'Route to app owner and limit permissions.', status: 'Open' });
+    if ((a.lastReviewedAt || '').trim()) {
+      const reviewed = new Date(a.lastReviewedAt);
+      if (!Number.isNaN(reviewed.getTime())) {
+        const days = (now - reviewed) / (1000 * 60 * 60 * 24);
+        if (days > 90) findings.push({ id: `derived-${a.id}-stale`, agentId: a.id, parentId: a.parent || null, type: 'Stale review', severity: 'medium', evidence: `Last review ${Math.floor(days)} days ago.`, action: 'Re-attest this agent.', status: 'Open' });
+      }
+    }
+    if (owner && ['terminating', 'inactive', 'Termination Pending'].includes((owner.status || '').toLowerCase()) && (a.status || '').toLowerCase() === 'active') findings.push({ id: `derived-${a.id}-hr`, agentId: a.id, parentId: a.parent || null, type: 'HR lifecycle conflict', severity: 'critical', evidence: 'Owner is terminating/inactive while agent remains active.', action: 'Reassign or suspend before offboarding.', status: 'Open' });
+    if ((a.apps || []).length && approval.includes('missing')) findings.push({ id: `derived-${a.id}-approval`, agentId: a.id, parentId: a.parent || null, type: 'Missing app-owner approval', severity: 'high', evidence: 'System access exists without app-owner sign-off.', action: 'Route approval request.', status: 'Open' });
+  });
+  return findings;
+};
+
+window.computePedigreeStats = function computePedigreeStats(data) {
+  const total = data.agents.length;
+  const mapped = data.agents.filter(a => !!a.parent).length;
+  const orphaned = total - mapped;
+  const highRisk = data.agents.filter(a => a.risk === 'high' || a.risk === 'critical').length;
+  const stale = data.findings.filter(f => (f.type || '').toLowerCase().includes('stale')).length;
+  const missingApprovals = data.findings.filter(f => (f.type || '').toLowerCase().includes('approval')).length;
+  const hrExposed = data.findings.filter(f => (f.type || '').toLowerCase().includes('hr lifecycle')).length;
+  const auditReady = Math.max(45, Math.round(((mapped / Math.max(total,1)) * 100) - (orphaned * 0.7)));
+  return { total, mapped, orphaned, highRisk, stale, missingApprovals, hrExposed, auditReady };
+};
+
+window.refreshPedigreeDerived = function refreshPedigreeDerived() {
+  const data = window.PEDIGREE_DATA;
+  const existing = (data.findings || []).filter(f => !(f.id || '').startsWith('derived-'));
+  data.findings = [...existing, ...window.computePedigreeFindings(data)];
+  data.stats = window.computePedigreeStats(data);
+};
+
+window.importCsvRows = function importCsvRows(rows) {
+  const humans = [];
+  const agents = [];
+  const mapId = {};
+  const initials = (name = '') => name.split(' ').map(x => x[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+  rows.forEach((r, idx) => {
+    const type = (r.type || '').toLowerCase().trim();
+    if (!type || !r.id || !r.name) return;
+    if (type === 'human') {
+      const id = r.id.replace('h_', 'h');
+      mapId[r.id] = id;
+      humans.push({ id, name: r.name, initials: initials(r.name), role: r.role || 'Employee', dept: r.department || 'General', manager: r.managerId ? r.managerId.replace('h_', 'h') : null, status: (r.status || 'active').replace(/^./, c => c.toUpperCase()) });
+    }
+    if (type === 'agent') {
+      const id = r.id.replace('a_', 'a');
+      agents.push({ id, name: r.name, parent: r.ownerId ? r.ownerId.replace('h_', 'h') : null, sponsor: r.ownerId ? r.ownerId.replace('h_', 'h') : null, techOwner: null, platform: r.platform || 'Unknown', purpose: `Automated workflow for ${r.systemAccessed || 'business system'}`, apps: r.systemAccessed ? [r.systemAccessed] : [], risk: (r.riskLevel || 'medium').toLowerCase(), status: (r.status || 'active').replace(/^./, c => c.toUpperCase()), approval: r.approvalStatus || 'missing', lastActive: 'Imported today', permissions: [], findings: [] });
+    }
+  });
+  if (!humans.length || !agents.length) throw new Error('CSV must include at least one human and one agent row.');
+  const data = window.PEDIGREE_DATA;
+  data.humans.splice(0, data.humans.length, ...humans);
+  data.agents.splice(0, data.agents.length, ...agents);
+  data.findings = [];
+  window.refreshPedigreeDerived();
+  localStorage.setItem('pedigree-demo-import', JSON.stringify({ humans, agents }));
+};
+
+window.resetToDemoData = function resetToDemoData() {
+  const base = JSON.parse(JSON.stringify(window.__PEDIGREE_BASELINE__));
+  const data = window.PEDIGREE_DATA;
+  data.humans.splice(0, data.humans.length, ...base.humans);
+  data.agents.splice(0, data.agents.length, ...base.agents);
+  data.findings = base.findings;
+  data.stats = base.stats;
+  localStorage.removeItem('pedigree-demo-import');
+};
+
+window.loadImportedDemoData = function loadImportedDemoData() {
+  try {
+    const raw = localStorage.getItem('pedigree-demo-import');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed?.humans?.length && parsed?.agents?.length) {
+      const data = window.PEDIGREE_DATA;
+      data.humans.splice(0, data.humans.length, ...parsed.humans);
+      data.agents.splice(0, data.agents.length, ...parsed.agents);
+      data.findings = [];
+      window.refreshPedigreeDerived();
+    }
+  } catch (e) {}
+};
+
+window.loadImportedDemoData();
+window.refreshPedigreeDerived();

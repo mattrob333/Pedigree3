@@ -2,132 +2,90 @@
 const { useState: uS, useEffect: uE, useMemo: uM, useRef: uR } = React;
 
 // ============ ORG CHART SCREEN ============
-const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, selHuman, selAgent, goScreen, suspendedAgents }) => {
+const OrgChartScreen = ({ revealed, setRevealed, onSelectHuman, onSelectAgent, selHuman, selAgent, suspendedAgents, dataVersion }) => {
+  const RF = window.ReactFlow;
+  const dagre = window.dagre;
   const humans = D.humans;
   const agents = D.agents;
+  const humanMap = Object.fromEntries(humans.map(h => [h.id, h]));
+  const appOwnerIds = new Set(Object.values(D.appOwners || {}));
 
-  // Layout: CIO at top, 3 VPs + HR + App Owners
-  const root = humans.find(h => h.id === 'h1');
-  const vps = humans.filter(h => h.manager === 'h1' && h.id !== 'h6');
-  const managers = humans.filter(h => ['h5', 'h7', 'h8'].includes(h.id));
+  const buildGraph = React.useMemo(() => {
+    if (!RF || !dagre) return { nodes: [], edges: [] };
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 90, marginx: 30, marginy: 30 });
+    g.setDefaultEdgeLabel(() => ({}));
 
-  const agentsFor = (humanId) => agents.filter(a => a.parent === humanId);
-  const orphans = agents.filter(a => !a.parent);
+    const nodes = [];
+    const edges = [];
+    humans.forEach((h) => {
+      const type = appOwnerIds.has(h.id) ? 'appOwner' : 'human';
+      const n = { id: h.id, type, data: { ...h, kind: type, selected: selHuman === h.id }, position: { x: 0, y: 0 }, width: type === 'human' ? 250 : 220, height: 88 };
+      nodes.push(n); g.setNode(n.id, { width: n.width, height: n.height });
+      if (h.manager && humanMap[h.manager]) edges.push({ id: `mgr-${h.manager}-${h.id}`, source: h.manager, target: h.id, type: 'smoothstep', style: { stroke: '#64748B', strokeWidth: 1.5 } });
+    });
+
+    if (revealed) {
+      agents.forEach((a) => {
+        const orphan = !a.parent || !humanMap[a.parent];
+        const nodeId = a.id;
+        const n = { id: nodeId, type: orphan ? 'orphanAgent' : 'agent', data: { ...a, orphan, selected: selAgent === a.id, suspended: suspendedAgents.includes(a.id) }, position: { x: 0, y: 0 }, width: 245, height: 72 };
+        nodes.push(n); g.setNode(n.id, { width: 245, height: 72 });
+        if (orphan) {
+          edges.push({ id: `orphan-${a.id}`, source: humans[0]?.id || 'h1', target: a.id, type: 'smoothstep', style: { stroke: '#DC2626', strokeDasharray: '4 4', strokeWidth: 1.3 } });
+        } else {
+          edges.push({ id: `own-${a.parent}-${a.id}`, source: a.parent, target: a.id, type: 'smoothstep', style: { stroke: '#7C3AED', strokeDasharray: '6 4', strokeWidth: 1.5 } });
+        }
+        const appOwnerId = (a.apps || []).map(app => D.appOwners?.[app]).find(Boolean);
+        if (appOwnerId && humanMap[appOwnerId]) {
+          edges.push({ id: `app-${a.id}-${appOwnerId}`, source: a.id, target: appOwnerId, type: 'straight', animated: a.risk === 'critical' || a.risk === 'high', style: { stroke: '#EA580C', strokeDasharray: '3 5', strokeWidth: 1.3 } });
+        }
+      });
+    }
+
+    edges.forEach((e) => g.setEdge(e.source, e.target));
+    dagre.layout(g);
+    nodes.forEach((n) => { const p = g.node(n.id); if (p) n.position = { x: p.x - (n.width || 0)/2, y: p.y - (n.height || 0)/2 }; });
+
+    const orphanNodes = nodes.filter(n => n.type === 'orphanAgent');
+    if (orphanNodes.length) {
+      const maxY = Math.max(...nodes.filter(n => n.type !== 'orphanAgent').map(n => n.position.y), 0);
+      orphanNodes.forEach((n, i) => { n.position = { x: 80 + (i % 4) * 280, y: maxY + 240 + Math.floor(i / 4) * 90 }; });
+    }
+    return { nodes, edges };
+  }, [revealed, selHuman, selAgent, suspendedAgents, dataVersion]);
+
+  const nodeTypes = React.useMemo(() => ({
+    human: ({ data }) => <div className={`rf-node human ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>{data.dept}</span><span>{agents.filter(a => a.parent === data.id).length} agents</span></div></div>,
+    appOwner: ({ data }) => <div className={`rf-node appowner ${data.selected ? 'selected' : ''}`} onClick={() => onSelectHuman(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.role}</div><div className="rf-meta"><span>App owner</span><span>{agents.filter(a => (a.apps || []).some(app => D.appOwners?.[app] === data.id)).length} approvals</span></div></div>,
+    agent: ({ data }) => <div className={`rf-node agent risk-${data.risk} ${data.selected ? 'selected' : ''} ${data.suspended ? 'suspended' : ''}`} onClick={() => onSelectAgent(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'No app'}</div><div className="rf-meta"><span>{data.approval}</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div></div>,
+    orphanAgent: ({ data }) => <div className={`rf-node orphan risk-${data.risk} ${data.selected ? 'selected' : ''}`} onClick={() => onSelectAgent(data.id)}><div className="rf-title">{data.name}</div><div className="rf-sub">{data.platform} · {(data.apps || []).join(', ') || 'Unknown system'}</div><div className="rf-meta"><span>No sponsor</span><span className={`chip risk-${data.risk}`}>{data.risk}</span></div></div>,
+  }), [onSelectHuman, onSelectAgent, selHuman, selAgent, suspendedAgents, dataVersion]);
+
+  if (!RF) return <div className="page"><div className="card" style={{padding:20}}>React Flow failed to load.</div></div>;
 
   return (
     <div className="orgchart-wrap scroll">
       <div className="reveal-banner">
-        <div className="stat"><strong>9</strong><span>agents mapped</span></div>
-        <div className="divider"/>
-        <div className="stat"><strong style={{color:'var(--risk-critical)'}}>4</strong><span>findings require review</span></div>
-        <div className="divider"/>
-        <div className="stat"><strong>1</strong><span>orphaned agent</span></div>
-        <button
-          className={`btn reveal-btn ${revealed ? 'btn-ghost' : 'btn-accent'}`}
-          onClick={() => setRevealed(!revealed)}
-        >
-          {revealed ? 'Hide Agent Workforce' : 'Reveal Agent Workforce'} →
-        </button>
+        <div className="stat"><strong>{D.stats.mapped}</strong><span>agents mapped</span></div>
+        <div className="divider"/><div className="stat"><strong style={{color:'var(--risk-critical)'}}>{D.stats.highRisk}</strong><span>high-risk agents</span></div>
+        <div className="divider"/><div className="stat"><strong>{D.stats.orphaned}</strong><span>orphaned agents</span></div>
+        <button className={`btn reveal-btn ${revealed ? 'btn-ghost' : 'btn-accent'}`} onClick={() => setRevealed(!revealed)}>{revealed ? 'Hide Agent Workforce' : 'Reveal Agent Workforce'} →</button>
       </div>
-
-      <div className="orgchart">
-        <div className="org-title">Apex Industrial Group · Org Chart</div>
-
-        {/* CIO level */}
-        <div className="tree-level">
-          <div className="tree-branch">
-            <HumanNode human={root} selected={selHuman === root.id} onSelect={onSelectHuman} />
-          </div>
-        </div>
-
-        <TreeSVG revealed={revealed} />
-
-        {/* VP level */}
-        <div className="tree-level" style={{marginTop: 24}}>
-          {vps.map(vp => (
-            <div key={vp.id} className="tree-branch" style={{flex: 1, maxWidth: 300}}>
-              <HumanNode human={vp} selected={selHuman === vp.id} onSelect={onSelectHuman} />
-              {/* Agents directly under VP (Priya has Expense Summarizer) */}
-              {revealed && agentsFor(vp.id).length > 0 && (
-                <div className={`agents-row ${revealed ? 'revealed' : ''}`}>
-                  {agentsFor(vp.id).map(a => (
-                    <AgentNode key={a.id} agent={a} selected={selAgent === a.id} onSelect={onSelectAgent} suspended={suspendedAgents.includes(a.id)} />
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Manager level — Jane under Marcus, Nina under Priya */}
-        <div className="tree-level" style={{marginTop: 36}}>
-          <div className="tree-branch">
-            <HumanNode human={getHuman('h5')} selected={selHuman === 'h5'} onSelect={onSelectHuman} />
-            {revealed && (
-              <div className={`agents-row revealed`}>
-                {agentsFor('h5').map(a => (
-                  <AgentNode key={a.id} agent={a} selected={selAgent === a.id} onSelect={onSelectAgent} suspended={suspendedAgents.includes(a.id)} />
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="tree-branch">
-            <HumanNode human={getHuman('h8')} selected={selHuman === 'h8'} onSelect={onSelectHuman} />
-            {revealed && (
-              <div className={`agents-row revealed`}>
-                {agentsFor('h8').map(a => (
-                  <AgentNode key={a.id} agent={a} selected={selAgent === a.id} onSelect={onSelectAgent} suspended={suspendedAgents.includes(a.id)} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* App owners row */}
-        <div className="tree-level" style={{marginTop: 36}}>
-          <HumanNode human={getHuman('h7')} selected={selHuman === 'h7'} onSelect={onSelectHuman} compact />
-          <HumanNode human={getHuman('h6')} selected={selHuman === 'h6'} onSelect={onSelectHuman} compact />
-          {revealed && (
-            <div className={`agents-row revealed`} style={{marginLeft: 0, maxWidth: 240}}>
-              {agentsFor('h6').map(a => (
-                <AgentNode key={a.id} agent={a} selected={selAgent === a.id} onSelect={onSelectAgent} suspended={suspendedAgents.includes(a.id)} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Orphan lane */}
-        {revealed && (
-          <div className="orphan-lane">
-            <div className="orphan-lane-head">Unmapped agents — missing human sponsor</div>
-            <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
-              {orphans.map(a => (
-                <AgentNode key={a.id} agent={a} selected={selAgent === a.id} onSelect={onSelectAgent} />
-              ))}
-              <span style={{alignSelf:'center', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)'}}>
-                Last active 47 days · write access to Snowflake
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Callout near Jane */}
-        {revealed && !selHuman && !selAgent && (
-          <div style={{marginTop: 24, background: 'var(--navy-950)', color: 'white', padding: '14px 18px', borderRadius: 10, fontSize: 13.5, lineHeight: 1.5, maxWidth: 520}}>
-            <div style={{fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#93C5FD', marginBottom: 4}}>Focus area</div>
-            Jane owns 3 active agents. One exceeds her Salesforce access and one requires app-owner review. <span onClick={() => onSelectHuman('h5')} style={{color: '#93C5FD', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3}}>Inspect Jane →</span>
-          </div>
-        )}
+      <div className="orgchart rf-wrapper">
+        <div className="org-title">Tiered lineage map · humans, agents, app approvals, orphan lane</div>
+        <RF.ReactFlow nodes={buildGraph.nodes} edges={buildGraph.edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }} proOptions={{ hideAttribution: true }}>
+          <RF.Background gap={24} size={1} color="#e2e8f0" />
+          <RF.Controls position="bottom-left" />
+          <RF.MiniMap pannable zoomable nodeColor={(n) => n.type === 'orphanAgent' ? '#dc2626' : n.type === 'agent' ? '#7c3aed' : '#334155'} />
+        </RF.ReactFlow>
       </div>
     </div>
   );
 };
 
-const TreeSVG = () => (
-  <svg width="100%" height="32" style={{display: 'block', marginTop: -4}}>
-    <path d="M 50% 0 V 16 H 15% V 32 M 50% 16 H 50% V 32 M 50% 16 H 85% V 32" stroke="#CBD5E1" strokeWidth="1" fill="none" />
-  </svg>
-);
+const TreeSVG = () => null;
+
 
 // ============ HUMAN DRAWER ============
 const HumanDrawer = ({ human, onClose, goScreen }) => {
