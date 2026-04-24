@@ -794,6 +794,28 @@ body { background: var(--off-white); overflow: hidden; }
 .rf-node.orphan { border: 1px dashed #dc2626; border-left: 4px solid #dc2626; background: #fef2f2; }
 .rf-handle { width: 8px !important; height: 8px !important; opacity: 0; border: none !important; background: transparent !important; }
 .react-flow__edge-path { stroke-linecap: round; }
+.orphan-lane-node {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed rgba(220, 38, 38, 0.45);
+  border-radius: 12px;
+  background: rgba(254, 242, 242, 0.55);
+  padding: 10px 12px;
+  pointer-events: none;
+}
+.orphan-lane-node .lane-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #991b1b;
+  font-weight: 600;
+}
+.orphan-lane-node .lane-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b91c1c;
+}
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(2,6,23,.58); z-index: 90; display: grid; place-items: center; }
 .modal-card { width: 640px; background: white; border-radius: 14px; border: 1px solid var(--border); padding: 24px; box-shadow: var(--shadow-lg); }
