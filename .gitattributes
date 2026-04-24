@@ -1,0 +1,8 @@
+# Reduce noisy conflicts for mostly additive demo UI edits.
+# This helps when parallel PRs append nearby CSS/JSX rules.
+*.css merge=union
+*.js merge=union
+*.jsx merge=union
+
+# Keep text normalization stable across environments.
+* text=auto eol=lf
